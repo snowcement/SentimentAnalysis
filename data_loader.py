@@ -86,7 +86,7 @@ def load_and_cache_examples(mode, train_batch_size, eval_batch_size):
     dataset = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, all_label_ids)
 
     if mode == "train":
-        sampler = RandomSampler(dataset)
+        sampler = RandomSampler(dataset)#作用近似shuffle
     elif mode == 'dev':
         sampler = SequentialSampler(dataset)
     else:
