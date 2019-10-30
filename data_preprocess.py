@@ -13,6 +13,7 @@ import pickle
 from sklearn.model_selection import train_test_split
 import matplotlib.pyplot as plt
 
+from up_sampling import up_sampling, eda
 import args
 logger = logging.getLogger(__name__)
 logging.basicConfig(format='%(asctime)s - %(pathname)s[line:%(lineno)d] - %(levelname)s: %(message)s',level=logging.INFO)
@@ -66,7 +67,13 @@ class InputExample(object):
             specified for train and dev examples, but not for test examples.
         """
         self.guid = guid
-        self.text_a = text_a
+        # TODO : new added for DA-------------------------------------------------------
+        if label == '0' or label == '2':
+            self.text_a = eda(text_a, args.alpha_rs)
+        else:
+            self.text_a = text_a
+        # TODO : end--------------------------------------------------------------------
+        # self.text_a = text_a
         self.text_b = text_b
         self.label = label
 
@@ -85,12 +92,12 @@ class SentiAnalysisProcessor(DataProcessor):
     def get_train_examples(self, data_dir):
         """See base class."""
         return self._create_examples(
-            self._read_csv(os.path.join(data_dir, "train.csv")), "train")
+            self._read_csv(os.path.join(data_dir, args.TRAIN_US_CORPUS_FILE)), "train")
 
     def get_dev_examples(self, data_dir):
         """See base class."""
         return self._create_examples(
-            self._read_csv(os.path.join(data_dir, "dev_matched.csv")),
+            self._read_csv(os.path.join(data_dir, args.DEV_US_CORPUS_FILE)),
             "dev_matched")
 
     def get_labels(self):
@@ -236,18 +243,20 @@ def convert_examples_to_features(examples, label_list, max_seq_length,
                               input_mask=input_mask,
                               segment_ids=segment_ids,
                               label_id=label_id))
+    #up_sampling
+
     if mode == "train":
-        with open(os.path.join(args.data_dir, args.TRAIN_FEATURE_FILE), 'wb') as f:
+        with open(os.path.join(args.data_dir, args.TRAIN_US_FEATURE_FILE), 'wb') as f:#TRAIN_FEATURE_FILE
             pickle.dump(features, f)
     else:
-        with open(os.path.join(args.data_dir, args.DEV_FEATURE_FILE), 'wb') as f:
+        with open(os.path.join(args.data_dir, args.DEV_US_FEATURE_FILE), 'wb') as f:#DEV_FEATURE_FILE
             pickle.dump(features, f)
 
     return features
 
 def preprocess():
     '''
-    读取原始数据集，将Train_DataSet.csv和Train_DataSet_Label.csv合并并划分训练集、验证集分别保存为train.csv,dev_matched.csv
+    划分训练集、验证集（上采样）
     :return:
     '''
     datadf = pd.read_csv('./data/Train_DataSet.csv')
@@ -280,13 +289,29 @@ def preprocess():
     '''
     print(totaldf['label'].value_counts())
     print(totaldf.isnull().any())
+
+    # X_train, X_dev, y_train, y_dev = train_test_split(
+    #     totaldf['content'], totaldf['label'], test_size=0.2, random_state=666)
+    # traindf = pd.DataFrame({'content':X_train, 'label':y_train})
+    # traindf.to_csv(os.path.join(args.data_dir, args.TRAIN_CORPUS_FILE), sep=',', encoding='utf_8_sig', header=True, index=True)
+    # devdf = pd.DataFrame({'content':X_dev, 'label':y_dev})
+    # devdf.to_csv(os.path.join(args.data_dir, args.DEV_CORPUS_FILE), sep=',', encoding='utf_8_sig', header=True, index=True)
+
+
+    # TODO : new added for DA-------------------------------------------------------
+    #利用dataframe中的index作为id
+    df = pd.DataFrame({'index':range(totaldf.shape[0]), 'content':totaldf['content'], 'label':totaldf['label']})#.set_index('index')
+    print(df.head())
+
+    tokens, labels = up_sampling(list(df['index']), list(df['content']), list(df['label']))
     X_train, X_dev, y_train, y_dev = train_test_split(
-        totaldf['content'], totaldf['label'], test_size=0.2, random_state=666)
+        tokens, labels, test_size=0.2, random_state=666)
 
     traindf = pd.DataFrame({'content':X_train, 'label':y_train})
-    traindf.to_csv('./data/train.csv', sep=',', encoding='utf_8_sig', header=True, index=True)
+    traindf.to_csv(os.path.join(args.data_dir, args.TRAIN_US_CORPUS_FILE), sep=',', encoding='utf_8_sig', header=True, index=True)
     devdf = pd.DataFrame({'content':X_dev, 'label':y_dev})
-    devdf.to_csv('./data/dev_matched.csv', sep=',', encoding='utf_8_sig', header=True, index=True)
+    devdf.to_csv(os.path.join(args.data_dir, args.DEV_US_CORPUS_FILE), sep=',', encoding='utf_8_sig', header=True, index=True)
+    # TODO : end--------------------------------------------------------------------
 
 if __name__ =='__main__':
     preprocess()

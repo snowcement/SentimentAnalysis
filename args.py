@@ -5,12 +5,18 @@
 # @File    : args.py
 # 超参数设置，变量定义
 ROOT_DIR = '/home/haiyun/script/wtt/sentimentanalysis/'
+TRAIN_CORPUS_FILE = "train.csv"#原始训练集数据
+DEV_CORPUS_FILE = "dev_matched.csv"#原始验证集数据
+TRAIN_US_CORPUS_FILE = "train_us.csv"#上采样后的训练集数据
+DEV_US_CORPUS_FILE = "dev_matched_us.csv"#上采样后的验证集数据
 TRAIN_FEATURE_FILE = "train_features.pkl"
 DEV_FEATURE_FILE = "dev_features.pkl"
+TRAIN_US_FEATURE_FILE = "train_features_us.pkl"
+DEV_US_FEATURE_FILE = "dev_features_us.pkl"
 VOCAB_FILE = "bert_wwm_chinese/vocab.txt"#Pretrained tokenizer name or path if not the same as model_name
 data_dir = './data/'#The input data dir. Should contain the .csv files (or other data files) for the task.
 model_type = 'bert'#Model type selected in the list: " + ", ".join(MODEL_CLASSES.keys())
-labels = ['正面','中性','负面']
+labels = ['0','1','2']#['正面','中性','负面']
 bert_model = 'bert_wwm_chinese/'#Path to pre-trained model or shortcut name selected in the list
 task_name = 'sentiment_analysis'#The name of the task to train
 output_dir = "data/output"#The output directory where the model predictions and checkpoints will be written.
@@ -25,6 +31,7 @@ per_gpu_train_batch_size = 8#Batch size per GPU/CPU for training.
 per_gpu_eval_batch_size = 8#Batch size per GPU/CPU for evaluation.
 gradient_accumulation_steps = 4#Number of updates steps to accumulate before performing a backward/update pass.
 learning_rate = 2e-5#5e-5...The initial learning rate for Adam.
+alpha_rs = 0.15#random swap in eda
 weight_decay = 0.0#Weight decay if we apply some.
 adam_epsilon = 1e-8#Epsilon for Adam optimizer.
 max_grad_norm = 1.0#Max gradient norm.

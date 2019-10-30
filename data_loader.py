@@ -56,10 +56,10 @@ def load_and_cache_examples(mode, train_batch_size, eval_batch_size):
     #特征
     try:
         if mode == "train":
-            with open(os.path.join(args.data_dir, args.TRAIN_FEATURE_FILE), 'rb') as f:
+            with open(os.path.join(args.data_dir, args.TRAIN_US_FEATURE_FILE), 'rb') as f:#TRAIN_FEATURE_FILE
                 features = pickle.load(f)
         else:
-            with open(os.path.join(args.data_dir, args.DEV_FEATURE_FILE), 'rb') as f:
+            with open(os.path.join(args.data_dir, args.DEV_US_FEATURE_FILE), 'rb') as f:#DEV_FEATURE_FILE
                 features = pickle.load(f)
     except:
         features = convert_examples_to_features(examples, label_list, args.max_seq_length, tokenizer, output_mode, mode=mode,
