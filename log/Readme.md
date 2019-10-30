@@ -28,11 +28,12 @@
     + gradient_accumulation_steps=4
     + 未进行DA
     + Bert model
-+ 2019-
++ 2019-10-30T19-51-51
     + lr=2e-5
     + warmup_steps=120
     + gradient_accumulation_steps=4
     + 使用EDA对少量样本类进行DA
-        + 具体方法
+        + 使用random swap
+        + alpha_rs=0.15
     + Bert model
 
