@@ -8,6 +8,7 @@ import torch
 from data_preprocess import SentiAnalysisProcessor, convert_examples_to_features
 from torch.utils.data import TensorDataset, RandomSampler, DataLoader, SequentialSampler
 from pytorch_transformers import BertConfig, BertTokenizer
+from pytorch_transformers.tokenization_xlnet import XLNetTokenizer
 import os
 import logging
 import pickle
@@ -23,9 +24,18 @@ def init_params():
     if task_name not in processors:
         raise ValueError("Task not found: %s" % (task_name))
     processor = processors[task_name]()
-    tokenizer = BertTokenizer(vocab_file=args.VOCAB_FILE)
+    #tokenizer = BertTokenizer(vocab_file=args.VOCAB_FILE)
+    tokenizer = XLNetTokenizer.from_pretrained(os.path.join(args.ROOT_DIR, args.xlnet_model), do_lower_case=args.do_lower_case)
     return processor, tokenizer
 
+def select_field(features, field):
+    return [
+        [
+            choice[field]
+            for choice in feature.choices_features
+        ]
+        for feature in features
+    ]
 
 def load_and_cache_examples(mode, train_batch_size, eval_batch_size):
     '''
@@ -41,18 +51,20 @@ def load_and_cache_examples(mode, train_batch_size, eval_batch_size):
     if mode == "train":
         examples = processor.get_train_examples(args.data_dir)
         #t_total
-        num_train_steps = int(
-            len(examples) / train_batch_size / args.gradient_accumulation_steps * args.num_train_epochs)
+        #num_train_steps = int(
+        #    len(examples) / train_batch_size / args.gradient_accumulation_steps * args.num_train_epochs)
 
         batch_size = train_batch_size
+
+        #logger.info("  Num steps = %d", num_train_steps)
     elif mode == 'dev':
         examples = processor.get_dev_examples(args.data_dir)
         batch_size = eval_batch_size
     else:
         raise ValueError("Invalid mode %s" % mode)
 
-    label_list = processor.get_labels()
-    output_mode = 'classification'
+    #label_list = processor.get_labels()
+    output_mode = "classification"
     #特征
     try:
         if mode == "train":
@@ -62,7 +74,7 @@ def load_and_cache_examples(mode, train_batch_size, eval_batch_size):
             with open(os.path.join(args.data_dir, args.DEV_US_FEATURE_FILE), 'rb') as f:#DEV_FEATURE_FILE
                 features = pickle.load(f)
     except:
-        features = convert_examples_to_features(examples, label_list, args.max_seq_length, tokenizer, output_mode, mode=mode,
+        features = convert_examples_to_features(examples, args.max_seq_length, args.split_num, tokenizer, mode=mode,
             cls_token_at_end=bool(args.model_type in ['xlnet']),            # xlnet has a cls token at the end
             cls_token=tokenizer.cls_token,
             sep_token=tokenizer.sep_token,
@@ -74,16 +86,21 @@ def load_and_cache_examples(mode, train_batch_size, eval_batch_size):
     logger.info("  Batch size = %d", batch_size)
 
     # Convert to Tensors and build dataset
-    all_input_ids = torch.tensor([f.input_ids for f in features], dtype=torch.long)
-    all_input_mask = torch.tensor([f.input_mask for f in features], dtype=torch.long)
-    all_segment_ids = torch.tensor([f.segment_ids for f in features], dtype=torch.long)
+    all_input_ids = torch.tensor(select_field(features, 'input_ids'), dtype=torch.long)
+    all_input_mask = torch.tensor(select_field(features, 'input_mask'), dtype=torch.long)
+    all_segment_ids = torch.tensor(select_field(features, 'segment_ids'), dtype=torch.long)
+    #all_label = torch.tensor([f.label for f in features], dtype=torch.long)
+
+    # all_input_ids = torch.tensor([f.input_ids for f in features], dtype=torch.long)
+    # all_input_mask = torch.tensor([f.input_mask for f in features], dtype=torch.long)
+    # all_segment_ids = torch.tensor([f.segment_ids for f in features], dtype=torch.long)
     if output_mode == "classification":
-        all_label_ids = torch.tensor([f.label_id for f in features], dtype=torch.long)
+        all_labels = torch.tensor([int(f.label) for f in features], dtype=torch.long)
     elif output_mode == "regression":
-        all_label_ids = torch.tensor([f.label_id for f in features], dtype=torch.float)
+        all_labels = torch.tensor([int(f.label) for f in features], dtype=torch.float)
 
     #数据集
-    dataset = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, all_label_ids)
+    dataset = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, all_labels)
 
     if mode == "train":
         sampler = RandomSampler(dataset)#作用近似shuffle
@@ -94,13 +111,13 @@ def load_and_cache_examples(mode, train_batch_size, eval_batch_size):
 
     # 迭代器
     iterator = DataLoader(dataset, sampler=sampler, batch_size=batch_size)
-
-    if mode == "train":
-        return iterator, num_train_steps
-    elif mode == 'dev':
-        return iterator
-    else:
-        raise ValueError("Invalid mode %s" % mode)
+    return iterator
+    # if mode == "train":
+    #     return iterator#, num_train_steps
+    # elif mode == 'dev':
+    #     return iterator
+    # else:
+    #     raise ValueError("Invalid mode %s" % mode)
 
 
 

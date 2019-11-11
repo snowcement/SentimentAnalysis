@@ -10,11 +10,13 @@ import random
 import numpy as np
 import time
 from tensorboardX import SummaryWriter
-from pytorch_transformers import AdamW, WarmupLinearSchedule
+from pytorch_transformers import AdamW, WarmupLinearSchedule, XLNetConfig
 from datetime import datetime
-
+from itertools import cycle
+from tqdm import tqdm
 from model_util import save_model
 from Bert_SenAnalysis import Bert_SenAnalysis
+from Xlnet_SenAnalysis import XLNet_SenAnalysis
 from data_loader import load_and_cache_examples
 from progress_util import ProgressBar
 import args#配置文件中的变量
@@ -30,7 +32,7 @@ def set_seed(args, n_gpu):
         torch.cuda.manual_seed_all(args.seed)
 
 
-def fit(model, training_iter, eval_iter, num_epoch, pbar, num_train_steps, device, n_gpu, verbose=1):
+def fit(model, training_iter, eval_iter, num_train_steps, device, n_gpu, verbose=1):
     # ------------------结果可视化------------------------
     if args.local_rank in [-1, 0]:
         TIMESTAMP = "{0:%Y-%m-%dT%H-%M-%S/}".format(datetime.now())
@@ -40,13 +42,13 @@ def fit(model, training_iter, eval_iter, num_epoch, pbar, num_train_steps, devic
     no_decay = ['bias', 'LayerNorm.bias', 'LayerNorm.weight']
 
     optimizer_grouped_parameters = [
-        {'params': [p for n, p in param_optimizer if not any(nd in n for nd in no_decay)], 'weight_decay': 0.01},
+        {'params': [p for n, p in param_optimizer if not any(nd in n for nd in no_decay)], 'weight_decay': args.weight_decay},
         {'params': [p for n, p in param_optimizer if any(nd in n for nd in no_decay)], 'weight_decay': 0.0}]
 
     t_total = num_train_steps
 
     optimizer = AdamW(optimizer_grouped_parameters, lr=args.learning_rate, eps=args.adam_epsilon)
-    scheduler = WarmupLinearSchedule(optimizer, warmup_steps=args.warmup_steps, t_total=t_total)
+    scheduler = WarmupLinearSchedule(optimizer, warmup_steps=args.warmup_steps, t_total=t_total)#int(t_total*args.warmup_proportion)
     # ---------------------GPU半精度fp16-----------------------------
     if args.fp16:
         try:
@@ -66,113 +68,107 @@ def fit(model, training_iter, eval_iter, num_epoch, pbar, num_train_steps, devic
                                                           find_unused_parameters=True)
     # ---------------------模型初始化----------------------
     model.to(device)
-
-    # train_losses = []
-    # eval_losses = []
-    # train_accuracy = []
-    # eval_accuracy = []
-
-    # history = {
-    #     "train_loss": train_losses,
-    #     "train_acc": train_accuracy,
-    #     "eval_loss": eval_losses,
-    #     "eval_acc": eval_accuracy
-    # }
     tr_loss, logging_loss = 0.0, 0.0
     # ------------------------训练------------------------------
     best_f1 = 0
     start = time.time()
     global_step = 0
     set_seed(args, n_gpu)  # Added here for reproductibility (even between python 2 and 3)
-    for e in range(num_epoch):
+    bar = tqdm(range(t_total), total = t_total)
+    nb_tr_examples, nb_tr_steps = 0, 0
+
+    for step in bar:
         model.train()
-        for step, batch in enumerate(training_iter):
-            batch = tuple(t.to(device) for t in batch)
-            inputs = {'input_ids': batch[0],
-                      'attention_mask': batch[1],
-                      'token_type_ids': batch[2] if args.model_type in ['bert', 'xlnet'] else None,
-                      # XLM don't use segment_ids
-                      'labels': batch[3]}
-            bert_encode = model(**inputs)
-            bert_encode = bert_encode[0]#提取预测结果
-            train_loss = model.loss_fn(bert_encode=bert_encode,
-                                       labels=inputs['labels'])
+        batch = next(training_iter)
+        batch = tuple(t.to(device) for t in batch)
+        inputs = {'input_ids': batch[0],
+                  'attention_mask': batch[1],
+                  'token_type_ids': batch[2] if args.model_type in ['bert', 'xlnet'] else None,
+                  # XLM don't use segment_ids
+                  'labels': batch[3]}
+        encode = model(**inputs)
+        encode = encode[0]#提取预测结果
+        loss = model.loss_fn(encode,
+                                   labels=inputs['labels'])
 
-            if n_gpu > 1:
-                train_loss = train_loss.mean()  # mean() to average on multi-gpu parallel training
-            if args.gradient_accumulation_steps > 1:
-                train_loss = train_loss / args.gradient_accumulation_steps
+        if n_gpu > 1:
+            loss = loss.mean()  # mean() to average on multi-gpu parallel training
+        if args.gradient_accumulation_steps > 1:
+            loss = loss / args.gradient_accumulation_steps
 
-            if args.fp16:
-                with amp.scale_loss(train_loss, optimizer) as scaled_loss:
-                    scaled_loss.backward()
-                torch.nn.utils.clip_grad_norm_(amp.master_params(optimizer), args.max_grad_norm)
-            else:
-                train_loss.backward()
-                torch.nn.utils.clip_grad_norm_(model.parameters(), args.max_grad_norm)
+        if args.fp16:
+            with amp.scale_loss(loss, optimizer) as scaled_loss:
+                scaled_loss.backward()
+            #torch.nn.utils.clip_grad_norm_(amp.master_params(optimizer), args.max_grad_norm)
+        else:
+            loss.backward()
+            #torch.nn.utils.clip_grad_norm_(model.parameters(), args.max_grad_norm)
 
-            tr_loss += train_loss.item()
-            if (step + 1) % args.gradient_accumulation_steps == 0:
-                optimizer.step()
-                scheduler.step()  # Update learning rate schedule
-                optimizer.zero_grad()
-                global_step += 1
+        tr_loss += loss.item()
+        train_loss = round(tr_loss*args.gradient_accumulation_steps/(nb_tr_steps+1),4)
+        bar.set_description("loss {}".format(train_loss))
+        nb_tr_examples += inputs['input_ids'].size(0)
+        nb_tr_steps += 1
 
-                if args.local_rank in [-1, 0] and args.logging_steps > 0 and global_step % args.logging_steps == 0:
-                    # Log metrics
-                    # if args.local_rank == -1 and args.evaluate_during_training:  # Only evaluate when single GPU otherwise metrics may not average well
-                    #     results = evaluate(args, model, tokenizer)
-                    #     for key, value in results.items():
-                    #         tb_writer.add_scalar('eval_{}'.format(key), value, global_step)
-                    tb_writer.add_scalar('lr', scheduler.get_lr()[0], global_step)
-                    tb_writer.add_scalar('train_loss', (tr_loss - logging_loss) / args.logging_steps, global_step)
-                    logging_loss = tr_loss
+        if (nb_tr_steps + 1) % args.gradient_accumulation_steps == 0:
+            optimizer.step()
+            scheduler.step()  # Update learning rate schedule
+            optimizer.zero_grad()
+            global_step += 1
 
-            predicts = model.predict(bert_encode.detach().cpu().numpy())
-            label_ids = inputs['labels'].view(1, -1)
-            label_ids = label_ids[label_ids != -1]
-            label_ids = label_ids.cpu().numpy()
+        if (step + 1) %(args.eval_steps*args.gradient_accumulation_steps)==0:
+            tr_loss = 0
+            nb_tr_examples, nb_tr_steps = 0, 0
+            logger.info("***** Report result *****")
+            logger.info("  %s = %s", 'global_step', str(global_step))
+            logger.info("  %s = %s", 'train loss', str(train_loss))
 
-            train_acc, train_rec, f1 = model.acc_rec_f1(predicts, label_ids)
-            pbar.show_process(train_acc, train_rec, train_loss.item(), f1, time.time() - start, step)
-    # -----------------------验证----------------------------
-        model.eval()
-        count = 0
-        y_predicts, y_labels = [], []
-        eval_loss, eval_acc, eval_f1 = 0, 0, 0
 
-        with torch.no_grad():
-            for step, batch in enumerate(eval_iter):
+        if args.local_rank in [-1, 0] and \
+                args.do_eval and (step+1)%(args.eval_steps*args.gradient_accumulation_steps)==0:
+
+            # -----------------------验证----------------------------
+            model.eval()
+            y_predicts, y_labels = [], []
+            eval_loss, eval_acc, eval_f1 = 0, 0, 0
+            nb_eval_steps, nb_eval_examples = 0, 0
+
+            for _, batch in enumerate(eval_iter):
                 batch = tuple(t.to(device) for t in batch)
-                inputs = {'input_ids':      batch[0],
+                inputs = {'input_ids': batch[0],
                           'attention_mask': batch[1],
-                          'token_type_ids': batch[2] if args.model_type in ['bert', 'xlnet'] else None,  # XLM don't use segment_ids
-                          'labels':         batch[3]}
-                bert_encode = model(**inputs)
-                bert_encode = bert_encode[0]  # 提取预测结果
-                eval_los = model.loss_fn(bert_encode=bert_encode, labels=inputs['labels'])
-                eval_loss = eval_los + eval_loss
-                count += 1
-                predicts = model.predict(bert_encode.detach().cpu().numpy())
+                          'token_type_ids': batch[2] if args.model_type in ['bert', 'xlnet'] else None,
+                          # XLM don't use segment_ids
+                          'labels': batch[3]}
+                with torch.no_grad():
+                    encode = model(**inputs)
+                    encode = encode[0]  # 提取预测结果
+                    eval_los = model.loss_fn(encode, labels=inputs['labels'])
+
+                    predicts = model.predict(encode)#.detach().cpu().numpy()
+
+                nb_eval_examples += inputs['input_ids'].size(0)
+                nb_eval_steps += 1
+                eval_loss += eval_los.mean().item()
                 y_predicts.append(torch.from_numpy(predicts))
 
-                label_ids = inputs['labels'].view(1, -1)
-                label_ids = label_ids[label_ids != -1]
-                y_labels.append(label_ids)
+                labels = inputs['labels'].view(1, -1)
+                labels = labels[labels != -1]
+                y_labels.append(labels)
 
+            eval_loss = eval_loss / nb_eval_steps
             eval_predicted = torch.cat(y_predicts, dim=0).cpu().numpy()
             eval_labeled = torch.cat(y_labels, dim=0).cpu().numpy()
 
-            eval_acc, eval_rec, eval_f1 = model.acc_rec_f1(eval_predicted, eval_labeled)
-            model.class_report(eval_predicted, eval_labeled)
+            eval_f1 = model.acc_rec_f1(eval_predicted, eval_labeled)#eval_acc, eval_rec,
+            #model.class_report(eval_predicted, eval_labeled)
 
             logger.info(
-                '\n\nEpoch %d - train_loss: %4f - eval_loss: %4f - train_acc:%4f - eval_acc:%4f - eval_f1:%4f\n'
-                % (e + 1,
-                   train_loss.item(),
-                   eval_loss.item() / count,
-                   train_acc,
-                   eval_acc,
+                '\n\nglobal_step %d - train_loss: %4f - eval_loss: %4f - eval_f1:%4f\n'
+                % (global_step,
+                   train_loss,
+                   eval_loss,
+                   #eval_acc,
                    eval_f1))
 
             # 保存最好的模型
@@ -181,17 +177,12 @@ def fit(model, training_iter, eval_iter, num_epoch, pbar, num_train_steps, devic
                 save_model(model, args.output_dir)
 
             if args.local_rank in [-1, 0]:
-                tb_writer.add_scalar('train_loss_per_epoch', train_loss.item(), e)
-                tb_writer.add_scalar('train_acc', train_acc, e)
-                tb_writer.add_scalar('eval_loss', eval_loss.item() / count, e)
-                tb_writer.add_scalar('eval_acc', eval_acc, e)
+                tb_writer.add_scalar('train_loss', train_loss, step)#.item()
+                #tb_writer.add_scalar('train_acc', train_acc, step)
+                tb_writer.add_scalar('eval_loss', eval_loss, step)#.item() / count
+                tb_writer.add_scalar('eval_f1', eval_f1, step)#eval_acc
 
-            # if e % verbose == 0:
-            #     train_losses.append(train_loss.item())
-            #     train_accuracy.append(train_acc)
-            #     eval_losses.append(eval_loss.item() / count)
-            #     eval_accuracy.append(eval_acc)
-
+            tb_writer.add_scalar('lr', scheduler.get_lr()[0], global_step)
 
     if args.local_rank in [-1, 0]:
         tb_writer.close()
@@ -223,28 +214,30 @@ def main():
     train_batch_size = args.per_gpu_train_batch_size * max(1, n_gpu)
     eval_batch_size = args.per_gpu_eval_batch_size * max(1, n_gpu)
 
-    train_iter, num_train_steps = load_and_cache_examples(mode='train',
-                                                          train_batch_size=train_batch_size,
+    train_iter = load_and_cache_examples(mode='train',train_batch_size=train_batch_size,
                                                           eval_batch_size=eval_batch_size)
     eval_iter = load_and_cache_examples(mode='dev',
                                         train_batch_size=train_batch_size,
                                         eval_batch_size=eval_batch_size)
 
-    epoch_size = num_train_steps * train_batch_size * args.gradient_accumulation_steps / args.num_train_epochs
+    #epoch_size = num_train_steps * train_batch_size * args.gradient_accumulation_steps / args.num_train_epochs
 
-    pbar = ProgressBar(epoch_size=epoch_size,
-                       batch_size=train_batch_size)
-    model = Bert_SenAnalysis.from_pretrained(args.bert_model, num_tag = len(args.labels))
+    # pbar = ProgressBar(epoch_size=epoch_size,
+    #                    batch_size=train_batch_size)
+    #model = Bert_SenAnalysis.from_pretrained(args.bert_model, num_tag = len(args.labels))
+    config = XLNetConfig.from_pretrained(args.xlnet_model, num_labels = len(args.labels))
+    model = XLNet_SenAnalysis.from_pretrained(args.xlnet_model, config=config)
     for name, param in model.named_parameters():
         if param.requires_grad:
             print(name)
 
+    train_iter = cycle(train_iter)
     fit(model = model,
         training_iter=train_iter,
         eval_iter=eval_iter,
-        num_epoch=args.num_train_epochs,
-        pbar=pbar,
-        num_train_steps=num_train_steps,
+        #train_steps=args.train_steps,
+        #pbar=pbar,
+        num_train_steps=args.train_steps,#num_train_steps,
         device=device,
         n_gpu=n_gpu,
         verbose=1)
