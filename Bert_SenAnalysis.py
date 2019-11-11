@@ -80,15 +80,11 @@ class Bert_SenAnalysis(BertPreTrainedModel):
     def acc_rec_f1(self, preds, labels):
         # correct = np.sum((labels==preds).astype(int))
         # acc = correct/preds.shape[0]
-        acc = accuracy_score(y_true=labels, y_pred=preds)  # simple_accuracy(preds, labels)
-        rec = recall_score(y_true=labels, y_pred=preds, average="macro")
+        # acc = accuracy_score(y_true=labels, y_pred=preds)  # simple_accuracy(preds, labels)
+        # rec = recall_score(y_true=labels, y_pred=preds, average="macro")
         f1 = f1_score(y_true=labels, y_pred=preds, labels=[0,1,2],average="macro")
-        return acc, rec, f1   # "acc_and_f1": (acc + f1) / 2,
+        return f1   # "acc_and_f1": (acc + f1) / 2,
 
-    # def compute_metrics(self, task_name, preds, labels):
-    #     assert len(preds) == len(labels)
-    #     if task_name == "sentiment_analysis":
-    #         return self.acc_rec_f1(preds, labels)
 
     def predict(self, bert_encode):
         '''
@@ -101,9 +97,3 @@ class Bert_SenAnalysis(BertPreTrainedModel):
         if np.argmax(bert_encode, axis=1).any() not in [0,1,2]:
             print('attention:',np.argmax(bert_encode, axis=1))#按行取最大值，返回最大值所在的索引
         return np.argmax(bert_encode, axis=1)
-
-    def class_report(self, y_pred, y_true):
-        # y_true = y_true.numpy()
-        # y_pred = y_pred.numpy()
-        classify_report = classification_report(y_true, y_pred)
-        print('\n\nclassify_report:\n', classify_report)

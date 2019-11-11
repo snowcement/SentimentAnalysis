@@ -71,7 +71,7 @@ def fit(model, training_iter, eval_iter, num_train_steps, device, n_gpu, verbose
     tr_loss, logging_loss = 0.0, 0.0
     # ------------------------训练------------------------------
     best_f1 = 0
-    start = time.time()
+    #start = time.time()
     global_step = 0
     set_seed(args, n_gpu)  # Added here for reproductibility (even between python 2 and 3)
     bar = tqdm(range(t_total), total = t_total)
@@ -161,7 +161,6 @@ def fit(model, training_iter, eval_iter, num_train_steps, device, n_gpu, verbose
             eval_labeled = torch.cat(y_labels, dim=0).cpu().numpy()
 
             eval_f1 = model.acc_rec_f1(eval_predicted, eval_labeled)#eval_acc, eval_rec,
-            #model.class_report(eval_predicted, eval_labeled)
 
             logger.info(
                 '\n\nglobal_step %d - train_loss: %4f - eval_loss: %4f - eval_f1:%4f\n'
@@ -178,7 +177,6 @@ def fit(model, training_iter, eval_iter, num_train_steps, device, n_gpu, verbose
 
             if args.local_rank in [-1, 0]:
                 tb_writer.add_scalar('train_loss', train_loss, step)#.item()
-                #tb_writer.add_scalar('train_acc', train_acc, step)
                 tb_writer.add_scalar('eval_loss', eval_loss, step)#.item() / count
                 tb_writer.add_scalar('eval_f1', eval_f1, step)#eval_acc
 
@@ -224,9 +222,12 @@ def main():
 
     # pbar = ProgressBar(epoch_size=epoch_size,
     #                    batch_size=train_batch_size)
-    #model = Bert_SenAnalysis.from_pretrained(args.bert_model, num_tag = len(args.labels))
-    config = XLNetConfig.from_pretrained(args.xlnet_model, num_labels = len(args.labels))
-    model = XLNet_SenAnalysis.from_pretrained(args.xlnet_model, config=config)
+
+    if args.model_type == 'bert':
+        model = Bert_SenAnalysis.from_pretrained(args.bert_model, num_tag = len(args.labels))
+    elif args.model_type == 'xlnet':
+        config = XLNetConfig.from_pretrained(args.xlnet_model, num_labels = len(args.labels))
+        model = XLNet_SenAnalysis.from_pretrained(args.xlnet_model, config=config)
     for name, param in model.named_parameters():
         if param.requires_grad:
             print(name)
@@ -244,13 +245,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
-#--train_file=/home/webapp/newspace/script/wtt/pytorch-transformers/examples/tests_samples/SQUAD/dev-v2.0-small.json
-# --predict_file=/home/webapp/newspace/script/wtt/pytorch-transformers/examples/tests_samples/SQUAD/dev-v2.0-small.json
-# # --model_name=bert-base-uncased --output_dir=/home/webapp/newspace/script/wtt/pytorch-transformers/examples/tests_samples/temp_dir
-# --max_steps=10 --warmup_steps=2 --do_train --do_eval --version_2_with_negative --learning_rate=1e-4
-# --per_gpu_train_batch_size=2 --per_gpu_eval_batch_size=1 --overwrite_output_dir --seed=42 --model_type=bert
-# --model_name_or_path=/home/webapp/newspace/script/wtt/pytorch-transformers/model_and_config/bert_base_uncased/bert-base-uncased-pytorch_model.bin
-# --tokenizer_name=/home/webapp/newspace/script/wtt/pytorch-transformers/model_and_config/bert_base_uncased/bert-base-uncased-vocab.txt
-# --config_name=/home/webapp/newspace/script/wtt/pytorch-transformers/model_and_config/bert_base_uncased/bert-base-uncased-config.json

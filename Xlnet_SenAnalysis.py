@@ -215,10 +215,6 @@ class XLNet_SenAnalysis(XLNetPreTrainedModel):
         f1 = f1_score(y_true=labels, y_pred=preds, labels=[0,1,2],average="macro")
         return f1   # "acc_and_f1": (acc + f1) / 2,
 
-    # def compute_metrics(self, task_name, preds, labels):
-    #     assert len(preds) == len(labels)
-    #     if task_name == "sentiment_analysis":
-    #         return self.acc_rec_f1(preds, labels)
 
     def predict(self, xlnet_output):
         '''
@@ -231,9 +227,3 @@ class XLNet_SenAnalysis(XLNetPreTrainedModel):
         if np.argmax(xlnet_output, axis=1).any() not in [0,1,2]:
             print('attention:',np.argmax(xlnet_output, axis=1))
         return np.argmax(xlnet_output, axis=1)#按行取最大值，返回最大值所在的索引
-
-    def class_report(self, y_pred, y_true):
-        # y_true = y_true.numpy()
-        # y_pred = y_pred.numpy()
-        classify_report = classification_report(y_true, y_pred)
-        print('\n\nclassify_report:\n', classify_report)
