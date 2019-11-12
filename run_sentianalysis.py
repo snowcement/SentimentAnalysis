@@ -88,8 +88,7 @@ def fit(model, training_iter, eval_iter, num_train_steps, device, n_gpu, verbose
                   'labels': batch[3]}
         encode = model(**inputs)
         encode = encode[0]#提取预测结果
-        loss = model.loss_fn(encode,
-                                   labels=inputs['labels'])
+        loss = model.loss_fn(encode, labels=inputs['labels'])
 
         if n_gpu > 1:
             loss = loss.mean()  # mean() to average on multi-gpu parallel training
@@ -167,7 +166,6 @@ def fit(model, training_iter, eval_iter, num_train_steps, device, n_gpu, verbose
                 % (global_step,
                    train_loss,
                    eval_loss,
-                   #eval_acc,
                    eval_f1))
 
             # 保存最好的模型

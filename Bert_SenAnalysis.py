@@ -10,6 +10,7 @@ from pytorch_transformers import BertPreTrainedModel,BertModel
 import numpy as np
 from sklearn.metrics import f1_score, recall_score, accuracy_score, classification_report
 
+import args
 class Bert_SenAnalysis(BertPreTrainedModel):
     r"""
         **labels**: (`optional`) ``torch.LongTensor`` of shape ``(batch_size,)``:
@@ -49,18 +50,45 @@ class Bert_SenAnalysis(BertPreTrainedModel):
 
         self.bert = BertModel(config)
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
-        self.classifier = nn.Linear(config.hidden_size, num_tag)
+        #self.classifier = nn.Linear(config.hidden_size, num_tag)
+        #self.pooling = nn.Linear(config.hidden_size, config.hidden_size)
+        self.classifier = nn.Linear(args.lstm_hidden_size * 2, self.num_labels)
 
+        self.W = []
+        self.gru = []
+        for i in range(args.lstm_layers):
+            self.W.append(nn.Linear(args.lstm_hidden_size * 2, args.lstm_hidden_size * 2))
+            self.gru.append(
+                nn.GRU(config.hidden_size if i == 0 else args.lstm_hidden_size * 4, args.lstm_hidden_size,
+                       num_layers=1, bidirectional=True, batch_first=True).cuda())
+        self.W = nn.ModuleList(self.W)
+        self.gru = nn.ModuleList(self.gru)
         self.init_weights()
 
     def forward(self, input_ids, token_type_ids=None, attention_mask=None, labels=None,
                 position_ids=None, head_mask=None):
-        outputs = self.bert(input_ids, position_ids=position_ids, token_type_ids=token_type_ids,
-                            attention_mask=attention_mask, head_mask=head_mask)
-        pooled_output = outputs[1]
 
-        pooled_output = self.dropout(pooled_output)
-        logits = self.classifier(pooled_output)
+        flat_input_ids = input_ids.view(-1, input_ids.size(-1))
+        flat_position_ids = position_ids.view(-1, position_ids.size(-1)) if position_ids is not None else None
+        flat_token_type_ids = token_type_ids.view(-1, token_type_ids.size(-1)) if token_type_ids is not None else None
+        flat_attention_mask = attention_mask.view(-1, attention_mask.size(-1)) if attention_mask is not None else None
+
+        outputs = self.bert(flat_input_ids, position_ids=flat_position_ids, token_type_ids=flat_token_type_ids,
+                            attention_mask=flat_attention_mask, head_mask=head_mask)
+        pooled_output = outputs[1]
+        # output = output[:,-1,:]
+        output = pooled_output.reshape(input_ids.size(0), input_ids.size(1), -1)
+
+        for w, gru in zip(self.W, self.gru):
+            try:
+                gru.flatten_parameters()
+            except:
+                pass
+            output, hidden = gru(output)
+            output = self.dropout(output)
+
+        hidden = hidden.permute(1, 0, 2).reshape(input_ids.size(0), -1).contiguous()
+        logits = self.classifier(hidden)
 
         outputs = (logits,) + outputs[2:]  # add hidden states and attention if they are here
         return outputs

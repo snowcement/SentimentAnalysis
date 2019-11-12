@@ -78,14 +78,27 @@
     + XLnet model
     + split_num = 10
     + max_seq_length = 150(之前均为200)
-+ 2019-11-10T22-40-35
-    + adam_epsilon=1e-6-----------
++ 2019-11-11T18-09-32(last edition)
+    + adam_epsilon=1e-6
     + train_batch = 1
-    + eval_batch = 64-------------
+    + eval_batch = 64
     + lr=5e-6-----------
     + warmup_steps=120
-    + gradient_accumulation_steps=2
+    + train_steps = 4000
+    + gradient_accumulation_steps=1
     + 使用EDA对少量样本类进行DA
     + XLnet model
     + split_num = 10
     + max_seq_length = 150
++ 2019-11-12T10-25-49(last edition)
+    + adam_epsilon=1e-6
+    + train_batch = 4-----------
+    + eval_batch = 32-------------
+    + lr=5e-6
+    + warmup_steps=120
+    + train_steps = 3000-----------
+    + gradient_accumulation_steps=1
+    + 使用EDA对少量样本类进行DA
+    + Bert model-----------
+    + split_num = 3-----------
+    + max_seq_length = 256-----------

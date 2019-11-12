@@ -22,7 +22,7 @@ from data_preprocess import SentiAnalysisProcessor, convert_examples_to_features
 logger = logging.getLogger(__name__)
 
 
-# TODO: 分段特征
+# TODO: 单样本分段特征
 def convert_split_doc_to_feature(doc, max_seq_length, split_num, cls_token_at_end=False, pad_on_left=False,
                                  cls_token='[CLS]', sep_token='[SEP]', pad_token=0,
                                  sequence_a_segment_id=0, sequence_b_segment_id=1,

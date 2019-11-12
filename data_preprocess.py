@@ -466,19 +466,9 @@ def preprocess():
     testdf['content'] = testdf['title'].str.cat(testdf['content'], sep='-')
     testdf.drop(['title'], axis=1, inplace=True)
     testdf.info()
-    testdf = pd.DataFrame({'content': testdf['content']})
+    # testdf = pd.DataFrame({'content': testdf['content']})
     testdf.to_csv(os.path.join(args.data_dir, args.TEST_CORPUS_FILE),sep=',', encoding='utf_8_sig', header=True, index=True)
     # TODO : end--------------------------------------------------------------------
 
 if __name__ =='__main__':
     preprocess()
-
-    # processor = SentiAnalysisProcessor()
-    # processor.get_train_examples('./data')
-    # processor.get_dev_examples('./data')
-    # tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
-    # model = BertForSequenceClassification.from_pretrained('bert-base-uncased')
-    # input_ids = torch.tensor(tokenizer.encode("Hello, my dog is cute")).unsqueeze(0)  # Batch size 1
-    # labels = torch.tensor([1]).unsqueeze(0)  # Batch size 1
-    # outputs = model(input_ids, labels=labels)
-    # loss, logits = outputs[:2]
